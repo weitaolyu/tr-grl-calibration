@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>基于 Thru-Reflect / GRL 的夹具校准与介电参数反演</title>
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]], tags: "ams" },
+      svg: { fontCache: "global" }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  <style>
+    :root { color-scheme: light; --ink: #18212b; --muted: #536271; --line: #d8e0e7; --blue: #0b5cab; --bg: #f6f8fa; --warn: #fff6dd; --danger: #fff0f0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--bg); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+    main { max-width: 1050px; margin: 32px auto; padding: 44px 56px; background: #fff; box-shadow: 0 2px 16px #0001; }
+    h1, h2, h3 { line-height: 1.25; color: #102a43; }
+    h1 { font-size: 2rem; margin: 0 0 6px; }
+    h2 { margin-top: 2.35rem; border-bottom: 2px solid #dce8f4; padding-bottom: .35rem; }
+    h3 { margin-top: 1.65rem; }
+    p, li { max-width: 90ch; }
+    .subtitle, .muted { color: var(--muted); }
+    .box { margin: 1.3rem 0; padding: 16px 20px; border-left: 5px solid var(--blue); background: #eef6ff; }
+    .warning { border-left-color: #bc7b00; background: var(--warn); }
+    .danger { border-left-color: #ba3434; background: var(--danger); }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre { overflow-x: auto; padding: 15px; background: #101922; color: #e9f1f8; border-radius: 5px; line-height: 1.5; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { text-align: left; vertical-align: top; padding: 10px; border: 1px solid var(--line); }
+    th { background: #edf4fa; }
+    a { color: var(--blue); }
+    .equation { overflow-x: auto; padding: 4px 0; }
+    ol > li { margin: .45rem 0; }
+    @media print { body { background: #fff; } main { margin: 0; max-width: none; padding: 16mm; box-shadow: none; } }
+    @media (max-width: 700px) { main { margin: 0; padding: 24px 18px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>基于 Thru–Reflect / GRL 的夹具校准与介电参数反演</h1>
+  <p class="subtitle">适用于双端口、近正入射、准光学或“导波自由空间”材料测量夹具。文中采用相量约定 \(e^{+j\omega t}\)。</p>
+
+  <div class="box danger">
+    <strong>先说结论：</strong>只拥有一次 Thru（T）和一个 Reflect（R）的原始 S 参数，
+    <strong>一般不能</strong>唯一求出任意非对称双端口夹具的完整 12 项误差模型。要让 T/R 足够使用，必须额外满足并验证：
+    两端夹具近似对称、互易、单模，Reflect 的位置/厚度已知，而且时域门控能把目标反射与杂散反射分离。
+    若不满足这些条件，应增加左右两端 Reflect 测量、Line 标准，或改用 TRL/LRL/多线 TRL。
+  </div>
+
+  <h2>1. 目标、数据与参考面</h2>
+  <p>目标是将 VNA 在外部波导/同轴端口得到的原始样品数据 \(\mathbf S_{\rm MUT}^{m}(f)\)，
+  校正到样品两个表面处的参考面，得到 \(\mathbf S_{\rm MUT}^{c}(f)\)。然后以
+  \(\mathbf S_{\rm MUT}^{c}\) 和样品实测厚度 \(d\)，拟合复相对介电常数：</p>
+  <div class="equation">\[
+    \varepsilon_r^\ast(f)=\varepsilon_r'(f)-j\varepsilon_r''(f), \qquad
+    \tan\delta(f)=\frac{\varepsilon_r''(f)}{\varepsilon_r'(f)} .
+  \]</div>
+
+  <p>每一种状态都要保存<strong>完整、复数、双端口</strong> S 参数，且采用相同的频点、功率、IFBW、
+  平均次数、线缆位置和机械装配状态：</p>
+  <table>
+    <thead><tr><th>状态</th><th>符号</th><th>物理实现</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td>Thru</td><td>\(\mathbf S_T^m\)</td><td>两半夹具闭合至定义的位置；没有样品。</td><td>定义零长度传输参考并约束两侧误差盒的级联。</td></tr>
+      <tr><td>Reflect（从端口 1 激励）</td><td>\(\Gamma_{R,1}^m\)</td><td>将已知金属薄片放在样品平面；测 \(S_{11}\)。</td><td>约束左侧反射误差盒与参考面相位。</td></tr>
+      <tr><td>Reflect（从端口 2 激励）</td><td>\(\Gamma_{R,2}^m\)</td><td>同一标准件、同一位置；测 \(S_{22}\)。</td><td>约束右侧反射误差盒与参考面相位。</td></tr>
+      <tr><td>样品</td><td>\(\mathbf S_{\rm MUT}^m\)</td><td>样品平整地位于同一基准面。</td><td>校准后用于反演材料参数。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warning">
+    <strong>“一个 Reflect”不是只测一个 \(S_{11}\)。</strong>同一片金属反射标准可以作为一个物理标准，
+    但双端口夹具至少应从两个端口观测它，取得 \(S_{11}\) 与 \(S_{22}\)；同时测量完整二端口矩阵有助于诊断漏波。
+  </div>
+
+  <h2>2. 先完成仪器端校准</h2>
+  <p>在安装自制夹具前，先将 VNA（以及毫米波/太赫兹扩展头）校准到两个外部波导端口。
+  该步骤可采用适合接口的 SOLT、TRL 或 LRL。下文的 T/R 或 GRL 校准仅处理
+  <strong>夹具和馈源</strong>的残余误差，不能替代 VNA 端口校准。</p>
+
+  <h2>3. 两个误差盒的数学模型</h2>
+  <p>令左、右半夹具（含转接、喇叭/模式转换、波导段）分别为二端口误差盒
+  \(\mathbf E_1\)、\(\mathbf E_2\)。在链参数（ABCD 或 transmission matrix）域中，级联是矩阵乘法：</p>
+  <div class="equation">\[
+    \mathbf M_X^m=\mathbf E_1\,\mathbf M_X^c\,\mathbf E_2. \tag{1}
+  \]</div>
+  <p>其中，\(X\) 是 Thru、Reflect 或样品；上标 \(m\) 是仪器端已校准但尚未夹具去嵌的测量；
+  上标 \(c\) 是移到样品表面后的校准量。</p>
+
+  <h3>3.1 S 参数与链参数互换</h3>
+  <p>以下公式适用于两个端口具有相同实参考阻抗 \(Z_0\)，并且 \(S_{21}\ne0\) 的情况：</p>
+  <div class="equation">\[
+  \mathbf S=
+  \begin{bmatrix}S_{11}&S_{12}\\S_{21}&S_{22}\end{bmatrix}
+  \Longrightarrow
+  \mathbf M=
+  \begin{bmatrix}A&B\\C&D\end{bmatrix},
+  \]</div>
+  <div class="equation">\[
+  A=\frac{(1+S_{11})(1-S_{22})+S_{12}S_{21}}{2S_{21}}, \quad
+  B=Z_0\frac{(1+S_{11})(1+S_{22})-S_{12}S_{21}}{2S_{21}},
+  \]</div>
+  <div class="equation">\[
+  C=\frac{(1-S_{11})(1-S_{22})-S_{12}S_{21}}{2Z_0S_{21}}, \quad
+  D=\frac{(1-S_{11})(1+S_{22})+S_{12}S_{21}}{2S_{21}}. \tag{2}
+  \]</div>
+  <p>反向变换为：</p>
+  <div class="equation">\[
+  \Delta=A+\frac{B}{Z_0}+CZ_0+D,
+  \quad S_{11}=\frac{A+B/Z_0-CZ_0-D}{\Delta},
+  \]</div>
+  <div class="equation">\[
+  S_{21}=\frac{2}{\Delta},\qquad
+  S_{12}=\frac{2(AD-BC)}{\Delta},\qquad
+  S_{22}=\frac{-A+B/Z_0-CZ_0+D}{\Delta}. \tag{3}
+  \]</div>
+
+  <h3>3.2 T/R 约束是什么</h3>
+  <p>理想 Thru 在样品参考面处为单位传输网络：</p>
+  <div class="equation">\[
+    \mathbf M_T^c=\mathbf I,\qquad
+    \mathbf M_T^m=\mathbf E_1\mathbf E_2. \tag{4}
+  \]</div>
+  <p>因此 Thru 只给出两个误差盒的<strong>乘积</strong>，并没有单独给出 \(\mathbf E_1\) 与 \(\mathbf E_2\)。
+  Reflect 则给出反射终端经过单边误差盒后的反射。若参考面处 Reflect 的反射系数是
+  \(\Gamma_R^c\)，对左端盒 \(\mathbf E_1=[A_1,B_1;C_1,D_1]\)，从端口 1 看到的理论关系为：</p>
+  <div class="equation">\[
+   \Gamma_{R,1}^m=
+   \frac{A_1\Gamma_R^c+B_1/Z_0}
+        {C_1Z_0\Gamma_R^c+D_1}. \tag{5}
+  \]</div>
+  <p>右端同理。金属短路片通常可近似 \(\Gamma_R^c\simeq-1\)，但自制夹具中不要直接假定：
+  金属片的两个表面、其厚度 \(t_R\)、实际插入位置、有限导电率和空气隙会改变相位。应将其
+  视为“已知或需联合拟合的反射模型”。</p>
+
+  <h2>4. 为什么需要时域门控（GRL 中的 G）</h2>
+  <p>Reflect 测量会包含标准件反射以外的回波：波导接口、喇叭口、机械台阶、漏波和多重反射。
+  GRL 在频域记录 \(\Gamma_R^m(f)\)，再通过 IFFT 得到时域响应：</p>
+  <div class="equation">\[
+    r(t)=\mathcal F^{-1}\{\Gamma_R^m(f)\}. \tag{6}
+  \]</div>
+  <p>选取只包围金属片目标回波的窗 \(w(t-t_R)\)，并变换回频域：</p>
+  <div class="equation">\[
+    \widetilde\Gamma_R^m(f)=
+    \mathcal F\{r(t)w(t-t_R)\}. \tag{7}
+  \]</div>
+  <p>用 \(\widetilde\Gamma_R^m\)，而非未门控的 \(\Gamma_R^m\)，代入公式 (5) 或后续优化。
+  窗的中心由目标反射的群时延确定；窗口宽度必须足够覆盖主脉冲，却不包含相邻杂散回波。
+  门控会产生频域卷积和边缘波纹，故应记录窗函数、中心和宽度，并做敏感度分析。</p>
+
+  <div class="box warning">
+    若目标 Reflect 回波与其他回波在时域无法分离，GRL 的基本前提不成立。此时应修改结构以增加时延分离、
+    减小反射源，或使用 TRL/LRL/多线 TRL；不能靠任意缩窄时间窗解决。
+  </div>
+
+  <h2>5. 两种可实施的校准方案</h2>
+
+  <h3>方案 A：对称夹具近似的平方根去嵌（原型验证用）</h3>
+  <p>若两半夹具经机械和电磁设计后可认为相同，令：</p>
+  <div class="equation">\[
+    \mathbf E_1=\mathbf E_2=\mathbf E.
+  \]</div>
+  <p>由 Thru 得：</p>
+  <div class="equation">\[
+    \mathbf M_T^m=\mathbf E^2. \tag{8}
+  \]</div>
+  <p>可取矩阵平方根：</p>
+  <div class="equation">\[
+    \widehat{\mathbf E}=\operatorname{sqrtm}(\mathbf M_T^m). \tag{9}
+  \]</div>
+  <p>样品去嵌：</p>
+  <div class="equation">\[
+    \widehat{\mathbf M}_{\rm MUT}^c=
+    \widehat{\mathbf E}^{-1}\mathbf M_{\rm MUT}^m\widehat{\mathbf E}^{-1}. \tag{10}
+  \]</div>
+  <p>最后用式 (3) 转回 \(\widehat{\mathbf S}_{\rm MUT}^c\)。</p>
+
+  <p><strong>平方根的分支必须由 Reflect 选择。</strong>矩阵平方根并不唯一，错误分支会导致不连续或非物理的相位。
+  对每个候选连续分支，预测：</p>
+  <div class="equation">\[
+    \widehat{\Gamma}_{R,1}^m=
+    \frac{\widehat A\Gamma_R^c+\widehat B/Z_0}
+         {\widehat C Z_0\Gamma_R^c+\widehat D}, \tag{11}
+  \]</div>
+  <p>并同时与两端经过时域门控的实测 \(\widetilde\Gamma_{R,1}^m\)、
+  \(\widetilde\Gamma_{R,2}^m\) 比较。应选择在频率上连续且残差最小的分支。此方案简单，
+  但只适合验证阶段；其主要系统误差来自“左右完全相同”的假设。</p>
+
+  <h3>方案 B：以 Thru + 双端 Reflect 为约束的非线性误差盒求解（推荐）</h3>
+  <p>不强制 \(\mathbf E_1=\mathbf E_2\)，而是以待估参数 \(\theta\) 参数化两个互易误差盒
+  \(\mathbf E_1(\theta), \mathbf E_2(\theta)\)。最小化下列复数残差：</p>
+  <div class="equation">\[
+  \begin{aligned}
+  J(\theta)=
+  &w_T\left\|\mathbf M_T^m-\mathbf E_1(\theta)\mathbf E_2(\theta)\right\|_F^2\\
+  +&w_{R1}\left|\widetilde\Gamma_{R,1}^m-
+  F\!\left(\mathbf E_1(\theta),\Gamma_R^c\right)\right|^2\\
+  +&w_{R2}\left|\widetilde\Gamma_{R,2}^m-
+  F\!\left(\mathbf E_2(\theta),\Gamma_R^c\right)\right|^2
+  +J_{\rm prior}(\theta), \tag{12}
+  \end{aligned}
+  \]</div>
+  <p>其中 \(F\) 为式 (5) 的 Möbius 变换，\(\|\cdot\|_F\) 是 Frobenius 范数。
+  \(J_{\rm prior}\) 应加入必要物理约束，例如互易性、平滑的群时延、低插损和设计模型中已知的对称性。
+  若没有这些约束，问题仍可能有规范自由度（多个误差盒组合给出同一 Thru）。</p>
+  <p>解出后去嵌为：</p>
+  <div class="equation">\[
+    \widehat{\mathbf M}_{\rm MUT}^c=
+    \widehat{\mathbf E}_1^{-1}\mathbf M_{\rm MUT}^m\widehat{\mathbf E}_2^{-1}. \tag{13}
+  \]</div>
+
+  <div class="box">
+    <strong>实用建议：</strong>先实施方案 A，并用左右 Reflect、空载重复性、已知介质样品来检验其假设；
+    如果校准后的 \(S_{11}\) 与 \(S_{22}\)、\(S_{21}\) 与 \(S_{12}\) 仍显著不一致，再增加 Line 标准并升级到 TRL/LRL，
+    不要以“更复杂的拟合”掩盖夹具不对称或泄漏。
+  </div>
+
+  <h2>6. 一个频点/频带的详细处理流程</h2>
+  <p>这一节把“用 T/R 校准样品”的过程拆成可以直接写成 Python、MATLAB 或 Julia 程序的步骤。
+  实际计算通常不能只在一个孤立频点完成：时域门控需要一段连续频带，矩阵平方根的分支选择也需要利用频率连续性。
+  因此应当<strong>先在整段频带上处理，再逐频点得到校准结果</strong>。</p>
+
+  <h3>6.1 数据准备：统一频率轴和 VNA 约定</h3>
+  <p>先把所有 Touchstone 文件或 VNA 导出的数据统一成同一组频率点
+  \(f_0,f_1,\ldots,f_{N-1}\)。必须确认：</p>
+  <ul>
+    <li>所有状态使用同一个起止频率、频点数和线性频率步长 \(\Delta f\)；</li>
+    <li>数据是复数 \(S_{ij}=|S_{ij}|e^{j\phi_{ij}}\)，不是只有 dB 幅度；</li>
+    <li>相位是 degree 还是 radian，且没有错误地对 dB 值直接做 IFFT；</li>
+    <li>端口编号、参考阻抗 \(Z_0\)、波导模式以及 VNA 的时间参考方向一致；</li>
+    <li>Thru、Reflect 和 MUT 的机械状态、功率、IFBW、平均次数和连接状态一致。</li>
+  </ul>
+  <p>如果各数据文件的频率点不一致，应先用复数插值到共同频率轴；不要分别插值幅度和相位而忽略相位跳变。
+  可先将数据转换为实部和虚部进行插值：</p>
+  <div class="equation">\[
+    S(f)\longrightarrow
+    \operatorname{Re}\{S(f)\},\operatorname{Im}\{S(f)\}
+    \longrightarrow S(f_k).
+  \]</div>
+  <p>建议保存原始数据的校验和，并把每次测量的机械间隙、样品厚度、金属片厚度、门控参数记录在同一个元数据文件中。</p>
+
+  <h3>6.2 从频域构造 Reflect 的时域响应</h3>
+  <p>对端口 1 和端口 2 的 Reflect 响应分别处理：</p>
+  <div class="equation">\[
+    \Gamma_{R,1}^m(f)=S_{11,R}^m(f),\qquad
+    \Gamma_{R,2}^m(f)=S_{22,R}^m(f).
+  \]</div>
+  <p>若 VNA 扫描的是正频率 \(f_{\min}\) 到 \(f_{\max}\)，直接 IFFT 得到的时域信号会受到有限带宽和非零起始频率影响。
+  至少应在频域乘一个平滑窗 \(W(f)\)，降低截断旁瓣：</p>
+  <div class="equation">\[
+    r_i(t)=\operatorname{IFFT}
+    \left\{W(f)\Gamma_{R,i}^m(f)\right\},\qquad i\in\{1,2\}. \tag{6a}
+  \]</div>
+  <p>在 \(r_i(t)\) 中找到金属 Reflect 标准对应的目标回波中心 \(t_{R,i}\)。实际操作可先用空载/Thru
+  确定连接器和喇叭口的回波位置，再用插入金属片后的新增或增强回波确定 \(t_{R,i}\)。
+  选取时间窗 \(g_i(t-t_{R,i})\)，例如 Tukey、Hann 或矩形窗：</p>
+  <div class="equation">\[
+    r_{i,g}(t)=r_i(t)g_i(t-t_{R,i}),\qquad
+    \widetilde\Gamma_{R,i}^m(f)=
+    \operatorname{FFT}\{r_{i,g}(t)\}. \tag{6b}
+  \]</div>
+  <p>门的左右边界应覆盖目标回波的主能量，但不包含相邻的连接器回波。改变门宽、门中心并重复计算；
+  如果反演出的结果随门参数剧烈变化，说明回波没有被可靠分离，不能继续拟合材料。</p>
+
+  <h3>6.3 计算 Thru 与样品的 ABCD 矩阵</h3>
+  <p>对每一个频率点 \(f_k\)，将完整二端口 S 矩阵转换为链矩阵：</p>
+  <div class="equation">\[
+    \mathbf M_T^m(f_k)=\operatorname{S2ABCD}
+    \left(\mathbf S_T^m(f_k),Z_0\right),
+  \]</div>
+  <div class="equation">\[
+    \mathbf M_{\rm MUT}^m(f_k)=\operatorname{S2ABCD}
+    \left(\mathbf S_{\rm MUT}^m(f_k),Z_0\right).
+  \]</div>
+  <p>使用前检查 \(|S_{21,T}|\) 是否接近零。因为式 (2) 含 \(1/S_{21}\)，在传输接近噪声底时，
+  ABCD 表示会病态。对于正常的 Thru 和透射样品，若某些频点 \(S_{21}\) 很小，应标记为低可信度，
+  而不是让数值算法产生巨大矩阵元素。</p>
+
+  <h3>6.4 由 T/R 确定误差盒</h3>
+  <p>这里分成两个实现层次。</p>
+  <p><strong>对称原型：</strong>先计算 \(\mathbf M_T^m\) 的连续矩阵平方根：</p>
+  <div class="equation">\[
+    \mathbf E_k=\operatorname{sqrtm}\left(\mathbf M_T^m(f_k)\right).
+  \]</div>
+  <p>由于矩阵平方根有分支，不能在每个频点独立调用 <code>sqrtm</code> 后直接使用。
+  应从最低可信频点开始，选择与前一频点最接近、且 Reflect 预测残差最小的候选分支。
+  对每个候选 \(\mathbf E_k\)，使用式 (5) 预测两端 Reflect：</p>
+  <div class="equation">\[
+    \widehat\Gamma_{R,1}(f_k)=F(\mathbf E_k,\Gamma_R^c),\qquad
+    \widehat\Gamma_{R,2}(f_k)=F(\mathbf E_k,\Gamma_R^c).
+  \]</div>
+  <p>用复数残差选择分支：</p>
+  <div class="equation">\[
+    e_k=
+    \left|\widetilde\Gamma_{R,1}^m-\widehat\Gamma_{R,1}\right|^2+
+    \left|\widetilde\Gamma_{R,2}^m-\widehat\Gamma_{R,2}\right|^2. \tag{6c}
+  \]</div>
+  <p>实际的 Reflect 模型 \(\Gamma_R^c(f)\) 应包含标准片的厚度和位置；只有在金属片足够厚、参考面正好位于其表面时，
+  才可把它近似为 \(-1\)。</p>
+  <p><strong>非对称夹具：</strong>以 \(\mathbf E_1(f_k)\)、\(\mathbf E_2(f_k)\) 的参数化模型为未知量，
+  同时拟合 Thru、左 Reflect 和右 Reflect。每个频点的目标函数是式 (12)，但建议将相邻频点的平滑项加入：</p>
+  <div class="equation">\[
+    J_{\rm smooth}=
+    \lambda\left\|\theta_k-\theta_{k-1}\right\|_2^2. \tag{6d}
+  \]</div>
+  <p>初值可使用对称平方根方案；优化时对误差盒施加互易性、被动性和群时延连续约束。
+  如果优化得出的误差盒在频率上剧烈跳变，通常是模型不可辨识、Reflect 不够准确或门控失败，
+  而不是材料真的发生了同样剧烈的变化。</p>
+
+  <h3>6.5 去嵌样品并转换回 S 参数</h3>
+  <p>对于对称误差盒，样品去嵌是：</p>
+  <div class="equation">\[
+    \mathbf M_{\rm MUT}^c(f_k)=
+    \mathbf E_k^{-1}
+    \mathbf M_{\rm MUT}^m(f_k)
+    \mathbf E_k^{-1}. \tag{6e}
+  \]</div>
+  <p>对于非对称误差盒，则使用：</p>
+  <div class="equation">\[
+    \mathbf M_{\rm MUT}^c(f_k)=
+    \mathbf E_{1,k}^{-1}
+    \mathbf M_{\rm MUT}^m(f_k)
+    \mathbf E_{2,k}^{-1}. \tag{6f}
+  \]</div>
+  <p>然后按式 (3) 转回：</p>
+  <div class="equation">\[
+    \mathbf S_{\rm MUT}^c(f_k)=
+    \operatorname{ABCD2S}
+    \left(\mathbf M_{\rm MUT}^c(f_k),Z_0\right).
+  \]</div>
+  <p>不要逐项计算 \(\mathbf S_{\rm MUT}/\mathbf S_T\)。那只能粗略去除某些传输幅度因素，
+  无法同时校正两端反射、参考面相位和多重反射。</p>
+
+  <h3>6.6 每个频点的质量检查</h3>
+  <p>在进入介电常数拟合前，先对校准结果做检查：</p>
+  <ol>
+    <li><strong>数值条件：</strong>检查 \(\operatorname{cond}(\mathbf E_1)\)、\(\operatorname{cond}(\mathbf E_2)\)；
+      条件数过大时，该频点容易放大噪声。</li>
+    <li><strong>互易性：</strong>对无源互易样品，检查 \(S_{21}^c\) 与 \(S_{12}^c\) 的差异。</li>
+    <li><strong>被动性：</strong>在一致的功率波定义下检查传输和反射是否出现明显的非物理增益。</li>
+    <li><strong>连续性：</strong>观察校准后的幅度、展开相位、群时延是否连续；孤立尖峰通常是门控或分支问题。</li>
+    <li><strong>残差：</strong>回代误差盒，检查 Thru 与两个 Reflect 的预测值是否与测量值一致。</li>
+  </ol>
+
+  <h3>6.7 推荐的数据流伪代码</h3>
+  <pre># All arrays use the same uniformly spaced frequency axis f[0:N]
+T   = read_touchstone("thru.s2p")
+R   = read_touchstone("reflect.s2p")
+MUT = read_touchstone("sample.s2p")
+assert_same_frequency_axis(T, R, MUT)
+
+# R.S11 and R.S22 are the two observations of the same physical Reflect
+r1 = ifft(smooth_bandpass(R.S11))
+r2 = ifft(smooth_bandpass(R.S22))
+t1 = locate_reflect_echo(r1)
+t2 = locate_reflect_echo(r2)
+G1 = fft(r1 * gate(center=t1, width=gate_width))
+G2 = fft(r2 * gate(center=t2, width=gate_width))
+
+for k in range(N):
+    MT   = s_to_abcd(T[k], Z0)
+    MMUT = s_to_abcd(MUT[k], Z0)
+    if ill_conditioned(MT):
+        mark_invalid(k)
+        continue
+
+    # Start with the symmetric prototype
+    E_candidates = continuous_sqrt_candidates(MT, previous_E)
+    E = choose_by_reflect_residual(
+        E_candidates, G1[k], G2[k], Gamma_reflect_model[k])
+
+    MCAL = inverse(E) @ MMUT @ inverse(E)
+    SCAL[k] = abcd_to_s(MCAL, Z0)
+    check_reciprocity_passivity_continuity(SCAL[k])
+
+# Fit the slab model to complex SCAL.S11 and SCAL.S21 only after validation
+eps_complex = fit_complex_slab_model(SCAL, thickness=d)</pre>
+
+  <div class="box danger">
+    <strong>重要：</strong>上面的对称平方根流程是“自制 MCK 原型”的可操作起点，不是对任意夹具的通用 VNA 校准。
+    如果左右 Reflect 的回代残差不能同时变小，或者已知材料的结果随门宽、样品位置显著变化，
+    应停止拟合，改用左右独立误差盒加 Line 标准的 TRL/LRL 方法。
+  </div>
+
+  <h2>7. 从校准后的 S 参数拟合介电常数和损耗</h2>
+  <p>以下模型适用于：单层、均匀、各向同性、平整且足够大的样品；有效入射近似正入射；校准面位于样品两表面。
+  设自由空间波数 \(k_0=2\pi f/c\)，折射率：</p>
+  <div class="equation">\[
+    n=\sqrt{\varepsilon_r^\ast},
+    \qquad \operatorname{Re}(n)>0,\quad \operatorname{Im}(n)\le0,
+  \]</div>
+  <p>传播常数与单程传播因子：</p>
+  <div class="equation">\[
+    \gamma=jk_0n,\qquad p=e^{-\gamma d}. \tag{14}
+  \]</div>
+  <p>空气到样品界面的场反射系数：</p>
+  <div class="equation">\[
+    \rho=\frac{1-n}{1+n}. \tag{15}
+  \]</div>
+  <p>包含样品内部无限次往返反射的平板模型是：</p>
+  <div class="equation">\[
+    S_{11}^{\rm model}=
+    \frac{\rho(1-p^2)}{1-\rho^2p^2},
+    \qquad
+    S_{21}^{\rm model}=
+    \frac{(1-\rho^2)p}{1-\rho^2p^2}. \tag{16}
+  \]</div>
+  <p>在每个频点或小频率窗中，以复数最小二乘求解：</p>
+  <div class="equation">\[
+    \widehat{\varepsilon_r^\ast}=
+    \underset{\varepsilon_r^\ast}{\operatorname{argmin}}
+    \left[
+    w_{11}|S_{11}^{c}-S_{11}^{\rm model}|^2+
+    w_{21}|S_{21}^{c}-S_{21}^{\rm model}|^2
+    \right]. \tag{17}
+  \]</div>
+  <p>拟合变量可取 \((\varepsilon_r',\tan\delta)\)，并限制：</p>
+  <div class="equation">\[
+    \varepsilon_r'>1,\qquad \tan\delta\ge0.
+  \]</div>
+  <p>不要只用 \(|S_{21}|\) 估损耗；相位携带了介电常数、厚度和参考面偏差的重要信息。对于低损耗样品，
+  应用宽频带联合拟合并报告置信区间，而不是将细小的频率起伏解释为真实损耗色散。</p>
+
+  <h2>8. 必须通过的验收检查</h2>
+  <table>
+    <thead><tr><th>检查</th><th>应观察到的现象</th><th>失败时优先排查</th></tr></thead>
+    <tbody>
+      <tr><td>Thru 重复装配</td><td>\(S_{21}\) 幅度和相位重复；\(S_{11},S_{22}\) 小且稳定。</td><td>机械止挡、同轴度、接触/间隙、波导法兰。</td></tr>
+      <tr><td>Reflect 两端测量</td><td>门控后的反射相位/群时延与结构对称性一致。</td><td>标准件位置、薄片翘曲、端口不对称、门的位置。</td></tr>
+      <tr><td>校准后互易性</td><td>\(S_{21}^c\approx S_{12}^c\)。</td><td>漏波、端口漂移、两侧误差盒模型。</td></tr>
+      <tr><td>均匀样品翻面</td><td>反演出的 \(\varepsilon_r^\ast\) 应一致。</td><td>样品倾斜、各向异性、空气隙、夹具偏心。</td></tr>
+      <tr><td>已知材料</td><td>PTFE、石英或氧化铝等的结果在文献/不确定度范围内。</td><td>参考面、厚度、门控、平板模型是否适用。</td></tr>
+      <tr><td>被动性</td><td>对无源样品，不应出现持续的 \(|S_{11}|^2+|S_{21}|^2>1\) 或负损耗。</td><td>校准分支、相位符号、泄漏、噪声和模型错误。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>9. 不应采用的简化做法</h2>
+  <ul>
+    <li><strong>不要</strong>直接计算 \(\mathbf S_{\rm MUT}/\mathbf S_T\) 来“校准”反射与传输。S 参数逐项相除不是二端口去嵌。</li>
+    <li><strong>不要</strong>只记录 dB 幅度；校准和介电反演均需要复数幅度与相位。</li>
+    <li><strong>不要</strong>将任意金属片无条件设为 \(\Gamma=-1\)。要测量其厚度和位置，并以时域检查目标回波。</li>
+    <li><strong>不要</strong>把时间门控当成校准的替代品；它只能隔离可分离的回波。</li>
+    <li><strong>不要</strong>在没有已知样品验证前报告低损耗 \(\tan\delta\) 的绝对准确度。</li>
+  </ul>
+
+  <h2>10. 参考资料</h2>
+  <ol>
+    <li>Y. Wang <em>et al.</em>, “Characterization of Dielectric Materials at WR-15 Band (50–75 GHz) Using VNA-Based Technique,” <em>IEEE Transactions on Instrumentation and Measurement</em>, 2020. DOI: <a href="https://doi.org/10.1109/TIM.2019.2954010">10.1109/TIM.2019.2954010</a>.</li>
+    <li>A. Khalid <em>et al.</em>, “Evaluation of a VNA-based Material Characterization Kit at Frequencies from 0.75 THz to 1.1 THz,” UCMMT 2016. DOI: <a href="https://doi.org/10.1109/UCMMT.2016.7873952">10.1109/UCMMT.2016.7873952</a>.</li>
+    <li>G. F. Engen and C. A. Hoer, “Thru-Reflect-Line: An Improved Technique for Calibrating the Dual Six-Port Automatic Network Analyzer,” <em>IEEE Transactions on Microwave Theory and Techniques</em>, 1979.</li>
+  </ol>
+</main>
+</body>
+</html>
